@@ -41,7 +41,7 @@ C:\Users\Ranjani\Desktop\baumer\Components\Examples\C++\README
 -
 
 
-
+#July 2018
 
 
 TO-DO
@@ -58,8 +58,15 @@ TO-DO
 * Then from the coordinate differences between two successive pictures you should compute the coordinate change, i.e. the displacement vector from frame 2 – frame 1.
 * image from camera--calibration.
 * draw and chcek the coordinates. uncertainty to be checked.
-* along with camera, there will be a light. So, light has to be on only when image capture mode is on, else light should stay off.
+* ~~along with camera, there will be a light. So, light has to be on only when image capture mode is on, else light should stay off.~~
 
+### Pending
+
+~~Check out the output of the following fuctions: GetPixelFormat, GetImageOffset, GetWidth, GetHeight, GetMemSize~~
+
+- deamon to check if images are being captured. else send alert.
+-  Save raw image and bmp image for analysis purposes.
+-  separate config file where values(say, exposure time) can be changed dynamically. (code should contain only static content)
 
 ## Configuration for OpenCV
 
