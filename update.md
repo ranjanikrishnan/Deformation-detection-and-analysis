@@ -60,9 +60,32 @@ TO-DO
 * draw and chcek the coordinates. uncertainty to be checked.
 * along with camera, there will be a light. So, light has to be on only when image capture mode is on, else light should stay off.
 
-### Today
 
-~~Check out the output of the following fuctions: GetPixelFormat, GetImageOffset, GetWidth, GetHeight, GetMemSize~~
+## Configuration for OpenCV
 
-- deamon to check if images are being captured. else send alert.
-- 
+- Follow the answer provided [here](https://stackoverflow.com/questions/10901905/installing-opencv-2-4-3-in-visual-c-2010-express) else just refer the following configuration.
+- Project properties -> VC++ Directories
+	- Include Directories : C:\Users\Ranjani\Desktop\opencv\build\include
+	- Library Directories : C:\Users\Ranjani\Desktop\opencv\build\x64\vc14\lib
+- Project properties -> C/C++ -> General
+	- Additional Include Directories:
+```
+C:\Users\Ranjani\Desktop\opencv\build\include\opencv2
+C:\Users\Ranjani\Desktop\opencv\build\include\opencv
+C:\Users\Ranjani\Desktop\opencv\build\include
+```
+- Project properties -> Linker -> General
+	- Additional Library Directories:
+```
+C:\Users\Ranjani\Desktop\opencv\build\x64\vc14\bin
+C:\Users\Ranjani\Desktop\opencv\build\x64\vc14\lib
+```
+
+- Project properties -> Linker -> Input
+	- Additional Dependencies : 
+```
+C:\Users\Ranjani\Desktop\opencv\build\x64\vc14\lib\opencv_world342d.lib
+```
+
+- Edit PATH variable in Environment System variable
+	- Edit Path to include : C:\Users\Ranjani\Desktop\opencv\build\x64\vc14\bin
