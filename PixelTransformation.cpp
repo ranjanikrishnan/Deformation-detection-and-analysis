@@ -8,24 +8,77 @@ Please see "Baumer-GAPI SDK Programmer's Guide" chapter 5.5
 #include <iostream>
 #include <iomanip>
 #include <string>
+#include <time.h>
+#include <windows.h>
+
+#include "mysql_connection.h"
 #include "bgapi2_genicam.hpp"
 #include <opencv2\core.hpp>
 #include <opencv2\highgui.hpp> 
 #include <opencv2\video.hpp>
+#include <opencv2\imgcodecs.hpp>
+#include <..\..\..\baumer\Components\Examples\C++\build_vs14_c++_WIN_64\0_Common\005_PixelTransformation\dbconnector.h>
+
+//#include <boost/log/core.hpp>
+//#include <boost/log/trivial.hpp>
+//#include <boost/log/expressions.hpp>
+//#include <boost/log/sinks/text_file_backend.hpp>
+//#include <boost/log/utility/setup/file.hpp>
+//#include <boost/log/utility/setup/common_attributes.hpp>
+//#include <boost/log/sources/severity_logger.hpp>
+//#include <boost/log/sources/record_ostream.hpp>
+
 
 using namespace BGAPI2;
+using namespace cv;
+using namespace std;
+
+//namespace logging = boost::log;
+//namespace src = boost::log::sources;
+//namespace sinks = boost::log::sinks;
+//namespace keywords = boost::log::keywords;
+
+
+//void init()
+//{
+//	logging::add_file_log
+//	(
+//		keywords::file_name = "image-acquisition_%N.log",
+//		keywords::rotation_size = 10 * 1024 * 1024,
+//		keywords::format = "[%TimeStamp%]: %Message%"
+//	);
+//
+//	logging::core::get()->set_filter
+//	(
+//		logging::trivial::severity >= logging::trivial::info
+//	);
+//}
+
+
+const std::string currentDateTime(const char* format) {
+	time_t     now = time(0);
+	struct tm  tstruct;
+	char       buf[80];
+	tstruct = *localtime(&now);
+	// Visit http://en.cppreference.com/w/cpp/chrono/c/strftime
+	// for more information about date/time format
+	strftime(buf, sizeof(buf), format, &tstruct);
+
+	return buf;
+}
 
 
 int main()
 {
-	// OPENCV VARIABLE DECLARATIONS
-	cv::VideoWriter cvVideoCreator;                 // Create OpenCV video creator
-	cv::Mat openCvImage;                            // create an OpenCV image
-	cv::String videoFileName = "openCvVideo.avi";   // Define video filename
-	cv::Size frameSize = cv::Size(2048, 1088);      // Define video frame size
-	cvVideoCreator.open(videoFileName, CV_FOURCC('D', 'I', 'V', 'X'), 20, frameSize, true); // set the codec type and frame rate
+	/***********************
+	 Initialize the logger
+	************************/
+	//init();
 
-																							//DECLARATIONS OF VARIABLES
+	// OPENCV VARIABLE DECLARATIONS
+	cv::Mat openCvImage;                           
+
+	//BAUMER VARIABLE DECLARATIONS				
 	BGAPI2::ImageProcessor * imgProcessor = NULL;
 
 	BGAPI2::SystemList *systemList = NULL;
@@ -49,24 +102,168 @@ int main()
 	BGAPI2::String sBufferID;
 	int returncode = 0;
 
+	//MYSQL VARIABLE DECLARATIONS
+	sql::Connection *connection = getMySQLConn();
+	int image_index = getNextImageId(connection) + 1;
+	string image_path = "C:/Users/Ranjani/Pictures/tiff_images/" + currentDateTime("%Y-%m-%d") + "/";
+	string image_name = currentDateTime("%H-%M-%S--") + to_string(image_index);
+	string tiff_image_path = image_path + image_name + ".tiff";
+	cout << "path: " << tiff_image_path << endl;
+
+	//Create Windows Directory
+	std::wstring stemp = std::wstring(image_path.begin(), image_path.end());
+	LPCWSTR directory_path = stemp.c_str();
+
+	
+
+	//ImageDetails(connection, tiff_image_path);
+
 	std::cout << std::endl;
 	std::cout << "##########################################################" << std::endl;
-	std::cout << "# PROGRAMMER'S GUIDE Example 005_PixelTransformation.cpp #" << std::endl;
+	std::cout << "#	IMAGE ACQUISITION				 #" << std::endl;
 	std::cout << "##########################################################" << std::endl;
 	std::cout << std::endl << std::endl;
 
+	/***********************************************************************************************************************/
+	/************************************************
+		TEMPORARY CODE
+	************************************************/
+	// OpenCV code to process an existing image
+	string imageName =  "croppedTest03.jpg"; //"IMG0006-old.bmp";
+	string imagePath = "C:/Users/Ranjani/Desktop/baumer/Components/Examples/C++/build_vs14_c++_WIN_64/0_Common/005_PixelTransformation/baumerimages/" + imageName;
+	string jpeg_image_path = image_path + image_name + ".jpg";
+	Mat image = imread(imagePath.c_str(), IMREAD_COLOR); // Read the file
 
+	if (image.empty())                      // Check for invalid input
+	{
+		cout << "Could not open or find the image" << std::endl;
+		return -1;
+	}
+
+	namedWindow("Display window", WINDOW_NORMAL); // Create a window for display.
+	imshow("Display window", image);              // Show our image inside it.
+
+	/*
+	*****************************************************
+	Store Image using OPENCV and write image path to DB
+	*****************************************************
+	*/
+	//Create directory if it doesn't exist
+	if (CreateDirectory(directory_path, NULL) || ERROR_ALREADY_EXISTS == GetLastError()) {
+		//Write the image to the directory
+		if (imwrite(tiff_image_path, image)) {
+			cout << "Image successfully stored in directory. Writing image path to DB." << endl;
+			ImageDetails(connection, image_index, tiff_image_path);
+		}
+		else {
+			cout << "Unable to store tiff the image." << endl;
+		}
+	}
+	
+	Mat src, src_gray;
+	src = image;
+	cvtColor(src, src_gray, CV_BGR2GRAY);	/// Convert it to gray
+
+	/// Reduce the noise so we avoid false circle detection
+	GaussianBlur(src_gray, src_gray, Size(9, 9), 2, 2);
+
+	vector<Vec3f> circles;
+
+	/// Apply the Hough Transform to find the circles
+	HoughCircles(src_gray, circles, CV_HOUGH_GRADIENT, 1, 20, 90, 30, 0, 0);
+	//45-50 works well for param1 and param2 respectively for on-site images
+
+	vector<Vec3f> circles_new;
+	for (size_t i = 0; i < 18; i++) {
+		circles_new.push_back(Vec3f(circles[0][0] + (i * 10), circles[0][1] + (i * 10), circles[0][2]));
+	}
+	for (size_t i = 0; i < circles_new.size(); i++) {
+		Point center(cvRound(circles_new[i][0]), cvRound(circles_new[i][1]));
+		int radius = cvRound(circles_new[i][2]);
+		// circle center
+		circle(image, center, 3, Scalar(0, 255, 0), -1, 8, 0);
+		// circle outline
+		circle(image, center, radius, Scalar(0, 0, 255), 3, 8, 0);
+	}
+	/// Draw the circles detected
+	//for (size_t i = 0; i < circles.size(); i++)
+	//{
+	//	cout << i << "." << endl;
+	//	Point center(cvRound(circles[i][0]), cvRound(circles[i][1]));
+	//	int radius = cvRound(circles[i][2]);
+	//	// circle center
+	//	circle(image, center, 3, Scalar(0, 255, 0), -1, 8, 0);
+	//	// circle outline
+	//	circle(image, center, radius, Scalar(0, 0, 255), 3, 8, 0);
+	//}
+
+	/// Show your results
+	namedWindow("Hough Circle Transform Demo", WINDOW_NORMAL);
+	imshow("Hough Circle Transform Demo", src);
+
+	for (size_t i = 0; i < circles_new.size(); i++)
+	{
+		Point center(cvRound(circles_new[i][0]), cvRound(circles_new[i][1]));
+		cout << center <<endl;
+	}
+	/************************************************
+	Store the coordinates into the DB 
+	Here we store the following coordinates temporarily
+	[200,600],[250,600],[300,600]
+	[200,500],[250,500],[300,500]
+	[200,400],[250,400],[300,400]
+
+	[600,600],[650,600],[700,600]
+	[600,500],[650,500],[700,500]
+	[600,400],[650,400],[700,400]
+	************************************************/
+	vector<Vec3i> coordinates;
+	//left window
+	coordinates.push_back(Vec3i(206, 600, circles[0][2]));
+	coordinates.push_back(Vec3i(250, 600, circles[0][2]));
+	coordinates.push_back(Vec3i(300, 600, circles[0][2]));
+	coordinates.push_back(Vec3i(200, 500, circles[0][2]));
+	coordinates.push_back(Vec3i(250, 500, circles[0][2]));
+	coordinates.push_back(Vec3i(300, 500, circles[0][2]));
+	coordinates.push_back(Vec3i(200, 400, circles[0][2]));
+	coordinates.push_back(Vec3i(250, 400, circles[0][2]));
+	coordinates.push_back(Vec3i(300, 400, circles[0][2]));
+	//right window
+	coordinates.push_back(Vec3i(600, 600, circles[0][2]));
+	coordinates.push_back(Vec3i(650, 600, circles[0][2]));
+	coordinates.push_back(Vec3i(700, 600, circles[0][2]));
+	coordinates.push_back(Vec3i(600, 500, circles[0][2]));
+	coordinates.push_back(Vec3i(650, 500, circles[0][2]));
+	coordinates.push_back(Vec3i(700, 500, circles[0][2]));
+	coordinates.push_back(Vec3i(600, 400, circles[0][2]));
+	coordinates.push_back(Vec3i(650, 400, circles[0][2]));
+	coordinates.push_back(Vec3i(700, 400, circles[0][2]));
+	
+	coordinatesDetails(connection, image_index, coordinates);
+
+	/*
+	****************************************************************
+	coordinate differences are calculated
+	****************************************************************
+	*/
+	updateCoordinateDiff(connection, image_index, image_index - 1);
+	/*
+	****************************************************************
+	coordinate distances are calculated
+	****************************************************************
+	*/
+
+	waitKey(0); // Wait for a keystroke in the window
+
+	/***********************************************************************************************************************/
 	//Load image processor
 	try
 	{
 		imgProcessor = BGAPI2::ImageProcessor::GetInstance();
-		std::cout << "ImageProcessor version:    " << imgProcessor->GetVersion() << std::endl;
 		if (imgProcessor->GetNodeList()->GetNodePresent("DemosaicingMethod") == true)
 		{
 			imgProcessor->GetNodeList()->GetNode("DemosaicingMethod")->SetString("NearestNeighbor"); // NearestNeighbor, Bilinear3x3, Baumer5x5
-			std::cout << "    Demosaicing method:    " << imgProcessor->GetNodeList()->GetNode("DemosaicingMethod")->GetString() << std::endl;
 		}
-		std::cout << std::endl;
 	}
 	catch (BGAPI2::Exceptions::IException& ex)
 	{
@@ -76,25 +273,16 @@ int main()
 		std::cout << "in function:      " << ex.GetFunctionName() << std::endl;
 	}
 
-
-	std::cout << "SYSTEM LIST" << std::endl;
-	std::cout << "###########" << std::endl << std::endl;
-
+	/*
+	***************************************
+		Capture Image through Baumer Camera
+	****************************************
+	*/
 	//COUNTING AVAILABLE SYSTEMS (TL producers) 
 	try
 	{
 		systemList = SystemList::GetInstance();
 		systemList->Refresh();
-		std::cout << "5.1.2   Detected systems:  " << systemList->size() << std::endl;
-
-		//SYSTEM DEVICE INFORMATION
-		for (SystemList::iterator sysIterator = systemList->begin(); sysIterator != systemList->end(); sysIterator++)
-		{
-			std::cout << "  5.2.1   System Name:     " << sysIterator->second->GetFileName() << std::endl;
-			std::cout << "          System Type:     " << sysIterator->second->GetTLType() << std::endl;
-			std::cout << "          System Version:  " << sysIterator->second->GetVersion() << std::endl;
-			std::cout << "          System PathName: " << sysIterator->second->GetPathName() << std::endl << std::endl;
-		}
 	}
 	catch (BGAPI2::Exceptions::IException& ex)
 	{
@@ -110,38 +298,17 @@ int main()
 	{
 		for (SystemList::iterator sysIterator = systemList->begin(); sysIterator != systemList->end(); sysIterator++)
 		{
-			std::cout << "SYSTEM" << std::endl;
-			std::cout << "######" << std::endl << std::endl;
 
 			try
 			{
 				sysIterator->second->Open();
-				std::cout << "5.1.3   Open next system " << std::endl;
-				std::cout << "  5.2.1   System Name:     " << sysIterator->second->GetFileName() << std::endl;
-				std::cout << "          System Type:     " << sysIterator->second->GetTLType() << std::endl;
-				std::cout << "          System Version:  " << sysIterator->second->GetVersion() << std::endl;
-				std::cout << "          System PathName: " << sysIterator->second->GetPathName() << std::endl << std::endl;
 				sSystemID = sysIterator->first;
-				std::cout << "        Opened system - NodeList Information " << std::endl;
-				std::cout << "          GenTL Version:   " << sysIterator->second->GetNode("GenTLVersionMajor")->GetValue() << "." << sysIterator->second->GetNode("GenTLVersionMinor")->GetValue() << std::endl << std::endl;
-
-				std::cout << "INTERFACE LIST" << std::endl;
-				std::cout << "##############" << std::endl << std::endl;
-
+				
 				try
 				{
 					interfaceList = sysIterator->second->GetInterfaces();
 					//COUNT AVAILABLE INTERFACES
 					interfaceList->Refresh(100); // timeout of 100 msec
-					std::cout << "5.1.4   Detected interfaces: " << interfaceList->size() << std::endl;
-
-					//INTERFACE INFORMATION
-					for (InterfaceList::iterator ifIterator = interfaceList->begin(); ifIterator != interfaceList->end(); ifIterator++)
-					{
-						std::cout << "  5.2.2   Interface ID:      " << ifIterator->first << std::endl;
-						std::cout << "          Interface Type:    " << ifIterator->second->GetTLType() << std::endl;
-						std::cout << "          Interface Name:    " << ifIterator->second->GetDisplayName() << std::endl << std::endl;
-					}
 				}
 				catch (BGAPI2::Exceptions::IException& ex)
 				{
@@ -152,9 +319,6 @@ int main()
 				}
 
 
-				std::cout << "INTERFACE" << std::endl;
-				std::cout << "#########" << std::endl << std::endl;
-
 				//OPEN THE NEXT INTERFACE IN THE LIST
 				try
 				{
@@ -162,42 +326,26 @@ int main()
 					{
 						try
 						{
-							std::cout << "5.1.5   Open interface " << std::endl;
-							std::cout << "  5.2.2   Interface ID:      " << ifIterator->first << std::endl;
-							std::cout << "          Interface Type:    " << ifIterator->second->GetTLType() << std::endl;
-							std::cout << "          Interface Name:    " << ifIterator->second->GetDisplayName() << std::endl;
 							ifIterator->second->Open();
 							//search for any camera is connetced to this interface
 							deviceList = ifIterator->second->GetDevices();
 							deviceList->Refresh(100);
 							if (deviceList->size() == 0)
 							{
-								std::cout << "5.1.13   Close interface (" << deviceList->size() << " cameras found) " << std::endl << std::endl;
 								ifIterator->second->Close();
 							}
 							else
 							{
 								sInterfaceID = ifIterator->first;
-								std::cout << "   " << std::endl;
-								std::cout << "        Opened interface - NodeList Information" << std::endl;
 								if (ifIterator->second->GetTLType() == "GEV")
 								{
 									bo_int64 iIpAddress = ifIterator->second->GetNode("GevInterfaceSubnetIPAddress")->GetInt();
-									std::cout << "          GevInterfaceSubnetIPAddress: " << (iIpAddress >> 24) << "."
-										<< ((iIpAddress & 0xffffff) >> 16) << "."
-										<< ((iIpAddress & 0xffff) >> 8) << "."
-										<< (iIpAddress & 0xff) << std::endl;
 									bo_int64 iSubnetMask = ifIterator->second->GetNode("GevInterfaceSubnetMask")->GetInt();
-									std::cout << "          GevInterfaceSubnetMask:      " << (iSubnetMask >> 24) << "."
-										<< ((iSubnetMask & 0xffffff) >> 16) << "."
-										<< ((iSubnetMask & 0xffff) >> 8) << "."
-										<< (iSubnetMask & 0xff) << std::endl;
 								}
 								if (ifIterator->second->GetTLType() == "U3V")
 								{
-									//std::cout << "          NodeListCount:     " << ifIterator->second->GetNodeList()->GetNodeCount() << std::endl;    
+									//do nothing
 								}
-								std::cout << "  " << std::endl;
 								break;
 							}
 						}
@@ -274,9 +422,6 @@ int main()
 		pInterface = (*interfaceList)[sInterfaceID];
 	}
 
-
-	std::cout << "DEVICE LIST" << std::endl;
-	std::cout << "###########" << std::endl << std::endl;
 
 	try
 	{
@@ -574,6 +719,7 @@ int main()
 	std::cout << "############################" << std::endl << std::endl;
 
 	BGAPI2::Buffer * pBufferFilled = NULL;
+	bo_double fExposureValue = 20000;
 	try
 	{
 		//while (pDataStream->GetIsGrabbing())
@@ -601,6 +747,12 @@ int main()
 				std::cout << "  pImage.Width:                   " << pImage->GetWidth() << std::endl;
 				std::cout << "  pImage.Height:                  " << pImage->GetHeight() << std::endl;
 				std::cout << "  pImage.Buffer:                  " << std::hex << pImage->GetBuffer() << std::dec << std::endl;
+
+				//  SET EXPOSURE TIME
+				pDevice->GetRemoteNode("ExposureTime")->SetDouble(fExposureValue);
+				std::cout << "Set Exposure to: ";
+				std::cout << pDevice->GetRemoteNode("ExposureTime")->GetDouble();
+				std::cout << " [usec]" << std::endl;
 
 				double fBytesPerPixel = pImage->GetNode("PixelFormatBytes")->GetDouble();
 				std::cout << "  Bytes per image:                " << (long)((pImage->GetWidth())*(pImage->GetHeight())*fBytesPerPixel) << std::endl;
@@ -702,16 +854,30 @@ int main()
 					std::cout << " " << std::endl;
 				}
 
-				// OPEN CV STUFF
+				/*
+				*****************************************************
+				Store Image using OPENCV and write image path to DB
+				*****************************************************
+				*/
 				openCvImage = cv::Mat(pTransformImage->GetHeight(), pTransformImage->GetWidth(), CV_8U, (int *)pTransformImage->GetBuffer());
-
-				// create OpenCV window ----
-				//cv::namedWindow("OpenCV window: Cam", CV_WINDOW_NORMAL);
-				cv::imwrite("C:/Users/Ranjani/Pictures/Baumer Images/kuttan_kutti.bmp", openCvImage);
-				//display the current image in the window ----
-				//cv::imshow("OpenCV window : Cam", openCvImage);
-				//cv::waitKey(20);
-
+				if (cv::imwrite(tiff_image_path, openCvImage)) {
+					cout << "Image successfully stored in directory. Writing image path to DB." << endl;
+					ImageDetails(connection, image_index, tiff_image_path);
+				}
+				else {
+					cout << "LOG SEV HIGH: Unable to store image through OpenCV";
+				}
+				
+				if (CreateDirectory(directory_path, NULL) || ERROR_ALREADY_EXISTS == GetLastError()) {
+					//Write the image to the directory
+					if (imwrite(tiff_image_path, image)) {
+						
+						ImageDetails(connection, image_index, tiff_image_path);
+					}
+					else {
+						cout << "LOG SEV HIGH: OPENCV : Unable to store tiff the image" << endl;
+					}
+				}
 				pImage->Release();
 				pTransformImage->Release();
 				//delete [] transformBuffer;
@@ -850,6 +1016,46 @@ int main()
 
 	std::cout << std::endl;
 	std::cout << "End" << std::endl << std::endl;
+
+
+	/*
+	****************************************************************
+		Image is cropped, processed, coordinates are identified
+	****************************************************************
+	*/
+	//openCVImage
+
+
+	/*
+	****************************************************************
+	coordinates are filtered, sorted as per left and right window
+	****************************************************************
+	*/
+
+	/*
+	****************************************************************
+	coordinates are stored
+	****************************************************************
+	*/
+
+	/*
+	****************************************************************
+	coordinate differences are calculated
+	****************************************************************
+	*/
+
+	/*
+	****************************************************************
+	coordinate distances are calculated
+	****************************************************************
+	*/
+
+	/*
+	****************************************************************
+	End mySQL connection
+	****************************************************************
+	*/
+	endMySQLConn(connection);
 
 	std::cout << "Input any number to close the program:";
 	int endKey = 0;
